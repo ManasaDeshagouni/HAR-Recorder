@@ -1,0 +1,7 @@
+numpy
+pandas
+matplotlib
+paho-mqtt>=2.0
+flask
+tzlocal
+tzdata

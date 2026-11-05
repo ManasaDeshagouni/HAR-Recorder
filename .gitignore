@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------
+# Files that must NEVER be uploaded to GitHub
+# ---------------------------------------------------------------
+
+# The broker password (the dashboard writes it here)
+live_config.json
+
+# Recorded data: personal, and much too big for GitHub
+data/
+
+# Python's private environment and leftovers
+.venv/
+__pycache__/
+*.pyc
+
+# Android Studio: build output and files only for your own computer
+build/
+.gradle/
+.kotlin/
+.idea/
+local.properties
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Mac and Windows system files
+.DS_Store
+Thumbs.db

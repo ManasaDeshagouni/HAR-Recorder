@@ -1,0 +1,8 @@
+{
+  "host": "abc123.ala.us-east-1.emqxsl.com",
+  "port": 8883,
+  "tls": true,
+  "username": "har-user",
+  "password": "PUT-THE-PASSWORD-HERE",
+  "data_dir": "~/HAR_Recorder/data"
+}

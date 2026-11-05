@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HAR Recorder</title>
+<style>
+  /* ---------- colors (light, and dark when the computer is in dark mode) ---------- */
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --text: #1c1f23; --muted: #6b7280; --border: #e4e7eb;
+    --green: #15803d; --red: #c62828; --amber: #b45309; --grey: #6b7280;
+    --x: #e5484d; --y: #2f9e5f; --z: #3e63dd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111315; --card: #1a1d21; --text: #eceef0; --muted: #9ba1a6; --border: #2c3035;
+      --green: #4ade80; --red: #f87171; --amber: #fbbf24; --grey: #9ba1a6;
+      --x: #ff6b70; --y: #4cc38a; --z: #7b93ff;
+    }
+  }
+
+  /* ---------- layout ---------- */
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between;
+           padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--card); }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .02em; }
+  h2 { font-size: 16px; margin: 0; }
+  h3 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 16px 0 6px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 24px 40px; display: grid; gap: 16px; }
+  @media (max-width: 600px) { main { padding: 16px; } header { padding: 12px 16px; } }
+  main > * { min-width: 0; }      /* lets long text shrink instead of widening the page */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .spacer { flex: 1; }
+
+  /* ---------- status pills (LIVE, OFFLINE, ...) ---------- */
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+          padding: 3px 10px; border-radius: 999px; letter-spacing: .03em; }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .ok   { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+  .bad  { color: var(--red);   background: color-mix(in srgb, var(--red) 14%, transparent); }
+  .warn { color: var(--amber); background: color-mix(in srgb, var(--amber) 16%, transparent); }
+  .off  { color: var(--grey);  background: color-mix(in srgb, var(--grey) 14%, transparent); }
+  .pulse .dot { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+
+  /* ---------- numbers ---------- */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 14px; margin-top: 14px; }
+  .stat .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .l { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .last { margin-top: 12px; font-size: 12px; color: var(--muted); font-family: ui-monospace, Menlo, monospace;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ---------- plots ---------- */
+  canvas { width: 100%; height: 190px; display: block; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+  select { font: inherit; font-size: 13px; padding: 4px 8px; border-radius: 8px;
+           border: 1px solid var(--border); background: var(--card); color: var(--text); }
+
+  /* ---------- buttons ---------- */
+  button { font: inherit; font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 8px;
+           border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--text); color: var(--card); border-color: var(--text); }
+  button:disabled { opacity: .5; cursor: wait; }
+  .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+  details { margin-top: 8px; } summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  pre { font-size: 11px; line-height: 1.45; background: var(--bg); border: 1px solid var(--border);
+        border-radius: 8px; padding: 10px; overflow: auto; max-height: 260px; white-space: pre; }
+
+  /* ---------- report ---------- */
+  .table-wrap { overflow-x: auto; margin-top: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 6px 10px 6px 0;
+       border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td.num, th.num { text-align: right; }
+  .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+  .figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;
+             margin-top: 12px; align-items: start; }
+  .figures a { display: block; text-decoration: none; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #fff; }
+  .figures img { width: 100%; display: block; }
+  .figures .cap { font-size: 12px; color: var(--muted); padding: 6px 8px; background: var(--card); }
+
+  /* ---------- setup form ---------- */
+  body.setup main > :not(#setup) { display: none; }      /* during setup, show only the form */
+  #setup { max-width: 560px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+  #setup p { font-size: 14px; line-height: 1.5; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 5px; }
+  label small { font-weight: 400; color: var(--muted); }
+  input[type=text], input[type=password], input[type=number] {
+    width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; padding: 8px 10px;
+    border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  input:focus { outline: 2px solid var(--z); outline-offset: -1px; }
+  .check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+  .error { color: var(--red); font-size: 13px; margin-top: 12px; min-height: 1em; }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>HAR Recorder</h1>
+  <div class="header-right">
+    <span id="broker" class="pill off"><span class="dot"></span>Starting…</span>
+    <button id="btnSettings">Settings</button>
+  </div>
+</header>
+
+<main>
+  <section id="setup" class="card" hidden>
+    <h2 id="setupTitle">Welcome to HAR Recorder</h2>
+    <p class="muted">Enter the broker details from whoever set up the project. The watch sends its
+      data to this broker, and this dashboard picks it up from there.</p>
+    <form id="setupForm" autocomplete="off">
+      <label for="fHost">Broker address <small>e.g. abc123.ala.us-east-1.emqxsl.com</small></label>
+      <input id="fHost" type="text" required spellcheck="false">
+      <label for="fUser">Username</label>
+      <input id="fUser" type="text" required spellcheck="false">
+      <label for="fPass">Password <small id="passHint"></small></label>
+      <input id="fPass" type="password">
+      <label for="fData">Data folder <small>where the received data is saved on this computer</small></label>
+      <input id="fData" type="text" spellcheck="false">
+      <details>
+        <summary>Advanced</summary>
+        <label for="fPort">Port</label>
+        <input id="fPort" type="number" min="1" max="65535">
+        <label class="check"><input id="fTls" type="checkbox"> Encrypted connection (TLS), keep this on</label>
+      </details>
+      <div id="setupError" class="error"></div>
+      <div class="row" style="margin-top:16px">
+        <button id="btnSave" type="submit" class="primary">Check and save</button>
+        <button id="btnCancel" type="button" hidden>Cancel</button>
+      </div>
+    </form>
+  </section>
+
+  <div id="watches"></div>
+
+  <section class="card">
+    <div class="row">
+      <h2>Live motion</h2>
+      <select id="pick" aria-label="Watch to plot"></select>
+      <span class="spacer"></span>
+      <span class="muted">last 30 seconds</span>
+    </div>
+    <h3>Accelerometer (m/s², includes gravity)</h3>
+    <canvas id="acc"></canvas>
+    <h3>Gyroscope (rad/s)</h3>
+    <canvas id="gyro"></canvas>
+    <div class="legend">
+      <span><i style="background:var(--x)"></i>x</span>
+      <span><i style="background:var(--y)"></i>y</span>
+      <span><i style="background:var(--z)"></i>z</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <h2>Your data</h2>
+      <span class="spacer"></span>
+      <div class="buttons">
+        <button id="btnProcess" class="primary">Process data</button>
+        <button id="btnFigures">Make figures</button>
+        <button id="btnFolder">Open data folder</button>
+      </div>
+    </div>
+    <p id="jobLine" class="muted">Process data turns the received files into tables and reports. It takes up to a minute.</p>
+    <details id="jobDetails" hidden><summary>Show details</summary><pre id="jobOutput"></pre></details>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <h2>Day report</h2>
+      <select id="day" aria-label="Day"></select>
+      <span class="spacer"></span>
+      <span id="processedAt" class="muted"></span>
+    </div>
+    <div id="report"><p class="empty">Loading…</p></div>
+  </section>
+</main>
+
+<script>
+const SECONDS = 30;                 // width of the live plot
+const $ = (id) => document.getElementById(id);
+let selected = null;                // which watch is plotted
+
+// Text from files (like the diary) is shown as plain text, never as HTML.
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// 75 → "1 min ago", 7200 → "2 h ago"
+function ago(seconds) {
+  if (seconds == null) return "never";
+  if (seconds < 60) return `${Math.round(seconds)} s ago`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)} h ago`;
+  return `${Math.round(seconds / 86400)} days ago`;
+}
+
+function pill(cls, text, pulse = false) {
+  return `<span class="pill ${cls}${pulse ? " pulse" : ""}"><span class="dot"></span>${esc(text)}</span>`;
+}
+
+// ---------------- status: every watch's card ----------------
+
+async function refreshStatus() {
+  let s;
+  try {
+    s = await (await fetch("/api/status")).json();
+  } catch (e) {
+    $("broker").outerHTML = `<span id="broker">${pill("bad", "Dashboard stopped: start it again")}</span>`;
+    return;
+  }
+  if (s.setup_needed) {
+    if (!document.body.classList.contains("setup")) openSetup(true);
+    $("broker").outerHTML = `<span id="broker">${pill("off", "Not set up yet")}</span>`;
+    return;
+  }
+  $("broker").outerHTML = `<span id="broker">${
+    s.broker.connected ? pill("ok", "Broker connected") : pill("warn", "Connecting to broker…", true)
+  }</span>`;
+
+  if (s.watches.length === 0) {
+    $("watches").innerHTML = `<div class="card muted">No watch has sent data yet. Open HAR Recorder on the watch and tap Start.</div>`;
+  } else {
+    $("watches").innerHTML = s.watches.map((w) => watchCard(w, s.server_time)).join("");
+  }
+
+  // keep the user's choice; otherwise plot the first live watch
+  const ids = s.watches.map((w) => w.id);
+  if (!ids.includes(selected)) selected = (s.watches.find((w) => w.live) || s.watches[0] || {}).id || null;
+  $("pick").innerHTML = ids.map((id) => `<option ${id === selected ? "selected" : ""}>${esc(id)}</option>`).join("");
+}
+
+function watchCard(w, now) {
+  const status = w.live
+    ? pill("ok", "LIVE", true)
+    : pill("off", w.seconds_since_data == null ? "OFFLINE · no data since the dashboard started"
+                                               : `OFFLINE · last data ${ago(w.seconds_since_data)}`);
+  const delay = !w.live ? "–" : w.delay_s == null ? "…" : w.delay_s < 1 ? "< 1 s" : `${w.delay_s.toFixed(1)} s`;
+  const battery = w.battery == null ? "–" : `${w.battery}%`;
+  const batteryAge = w.battery_at == null ? "" : ` · ${ago(now - w.battery_at / 1000)}`;
+  const recording = w.recording == null ? "–" : w.recording ? "Recording" : "Stopped";
+  const wrist = w.on_wrist == null ? "–" : w.on_wrist ? "On wrist" : "Off wrist";
+  const minutes = w.verified_today * 5;
+  const saved = minutes >= 60 ? `${Math.floor(minutes / 60)} h ${minutes % 60} min` : `${minutes} min`;
+  return `
+    <section class="card" style="margin-bottom:16px">
+      <div class="row"><h2>Watch ${esc(w.id)}</h2>${status}</div>
+      <div class="stats">
+        <div class="stat"><div class="v">${delay}</div><div class="l">behind real time</div></div>
+        <div class="stat"><div class="v">${w.live ? w.rate_kbs.toFixed(1) : "–"}</div><div class="l">KB/s arriving</div></div>
+        <div class="stat"><div class="v">${battery}</div><div class="l">battery${esc(batteryAge)}</div></div>
+        <div class="stat"><div class="v">${recording}</div><div class="l">watch app</div></div>
+        <div class="stat"><div class="v">${wrist}</div><div class="l">last reported</div></div>
+        <div class="stat"><div class="v">${w.verified_today}</div><div class="l">chunks verified today (≈ ${saved})</div></div>
+      </div>
+      <div class="last" title="${esc(w.last_event)}">Last diary entry: ${esc(w.last_event || "–")}</div>
+    </section>`;
+}
+
+// ---------------- live plots ----------------
+
+async function refreshLive() {
+  if (!selected) { draw($("acc"), null); draw($("gyro"), null); return; }
+  try {
+    const d = await (await fetch(`/api/live/${encodeURIComponent(selected)}?seconds=${SECONDS}`)).json();
+    draw($("acc"), d.sensors.accelerometer);
+    draw($("gyro"), d.sensors.gyroscope);
+  } catch (e) { /* dashboard stopped: the status pill already says so */ }
+}
+
+// Draws x, y, z lines on a canvas. series = {t: [...], x: [...], y: [...], z: [...]}
+function draw(canvas, series) {
+  const css = getComputedStyle(document.documentElement);
+  const color = (name) => css.getPropertyValue(name).trim();
+  const dpr = window.devicePixelRatio || 1;            // sharp lines on Retina screens
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const g = canvas.getContext("2d");
+  g.scale(dpr, dpr);
+  g.clearRect(0, 0, w, h);
+  g.font = "11px -apple-system, Segoe UI, sans-serif";
+
+  if (!series || series.t.length === 0) {
+    g.fillStyle = color("--muted");
+    g.fillText("No data yet", 12, h / 2);
+    return;
+  }
+
+  // y range from the data, with a little room above and below
+  let lo = Infinity, hi = -Infinity;
+  for (const k of ["x", "y", "z"]) for (const v of series[k]) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  if (hi - lo < 1e-6) { hi += 1; lo -= 1; }
+  const margin = (hi - lo) * 0.08; lo -= margin; hi += margin;
+
+  const pad = { l: 46, r: 10, t: 8, b: 22 };
+  const X = (t) => pad.l + ((t + SECONDS) / SECONDS) * (w - pad.l - pad.r);   // t is −30 … 0
+  const Y = (v) => pad.t + ((hi - v) / (hi - lo)) * (h - pad.t - pad.b);
+
+  // grid lines + labels (more decimals when the values are small)
+  const decimals = hi - lo < 0.1 ? 3 : hi - lo < 1 ? 2 : 1;
+  g.strokeStyle = color("--border"); g.fillStyle = color("--muted"); g.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const v = lo + ((hi - lo) * i) / 4, y = Math.round(Y(v)) + 0.5;
+    g.beginPath(); g.moveTo(pad.l, y); g.lineTo(w - pad.r, y); g.stroke();
+    g.fillText(v.toFixed(decimals), 6, y + 4);
+  }
+  for (let t = -SECONDS; t <= 0; t += 5) {
+    const label = t === 0 ? "now" : `${t} s`;
+    g.fillText(label, X(t) - g.measureText(label).width / 2, h - 6);
+  }
+
+  // the three lines
+  for (const k of ["x", "y", "z"]) {
+    g.strokeStyle = color(`--${k}`); g.lineWidth = 1.4; g.beginPath();
+    series.t.forEach((t, i) => {
+      const x = X(t), y = Y(series[k][i]);
+      if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+    });
+    g.stroke();
+  }
+}
+
+// ---------------- buttons: run the processing scripts ----------------
+
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+                               body: JSON.stringify(body || {}) });
+  return r.json();
+}
+
+$("btnProcess").onclick = () => post("/api/jobs/process").then(refreshJobs);
+$("btnFigures").onclick = () => post("/api/jobs/figures", { day: $("day").value }).then(refreshJobs);
+$("btnFolder").onclick = () => post("/api/open-folder");
+
+let lastFinished = {};               // to notice when a job has just finished
+
+async function refreshJobs() {
+  let jobs;
+  try { jobs = await (await fetch("/api/jobs")).json(); } catch (e) { return; }
+  const busy = (name) => jobs[name] && jobs[name].running;
+  $("btnProcess").disabled = busy("process");
+  $("btnProcess").textContent = busy("process") ? "Processing…" : "Process data";
+  $("btnFigures").disabled = busy("figures");
+  $("btnFigures").textContent = busy("figures") ? "Drawing…" : "Make figures";
+
+  // show the most recent job
+  const latest = Object.entries(jobs).sort((a, b) => b[1].started - a[1].started)[0];
+  if (latest) {
+    const [name, j] = latest;
+    const what = name === "process" ? "Processing" : "Making figures";
+    if (j.running) {
+      $("jobLine").textContent = `${what}… (${Math.round(Date.now() / 1000 - j.started)} s)`;
+    } else {
+      const took = Math.round(j.finished - j.started);
+      $("jobLine").innerHTML = j.ok
+        ? `${pill("ok", "Done")} ${esc(what)} finished in ${took} s.`
+        : `${pill("bad", "Failed")} ${esc(what)} stopped with an error. Open the details below and send them to whoever maintains the project.`;
+      $("jobOutput").textContent = j.output;
+      $("jobDetails").hidden = false;
+    }
+  }
+  // a job just finished → reload the report so the new results appear
+  for (const [name, j] of Object.entries(jobs)) {
+    if (!j.running && j.finished && lastFinished[name] !== j.finished) {
+      if (lastFinished[name] !== undefined || Date.now() / 1000 - j.finished < 5) refreshReport($("day").value);
+      lastFinished[name] = j.finished;
+    }
+  }
+}
+
+// ---------------- day report ----------------
+
+$("day").addEventListener("change", () => refreshReport($("day").value));
+
+function hms(text) { return String(text).slice(11, 19); }             // "2026-10-27 19:44:11…" → "19:44:11"
+function duration(seconds) {
+  if (seconds < 60) return `${seconds.toFixed(1)} s`;
+  if (seconds < 3600) return `${(seconds / 60).toFixed(1)} min`;
+  const h = Math.floor(seconds / 3600), m = Math.round((seconds % 3600) / 60);
+  return h >= 48 ? `${Math.round(seconds / 86400)} days` : `${h} h ${m} min`;
+}
+function reasonPill(g) {
+  if (g.planned) return pill("off", g.reason);
+  if (String(g.reason).startsWith("unknown")) return pill("bad", g.reason);
+  return pill("warn", g.reason);
+}
+
+async function refreshReport(day) {
+  let r;
+  try { r = await (await fetch(`/api/report?day=${encodeURIComponent(day || "")}`)).json(); } catch (e) { return; }
+  if (!r.day) {
+    $("day").innerHTML = "";
+    $("processedAt").textContent = "";
+    $("report").innerHTML = `<p class="empty">No report yet. Click <b>Process data</b> above.</p>`;
+    return;
+  }
+  $("day").innerHTML = r.days.map((d) => `<option ${d === r.day ? "selected" : ""}>${esc(d)}</option>`).join("");
+  $("processedAt").textContent = `processed ${ago(Date.now() / 1000 - r.processed_at)}`;
+
+  // big numbers, from the accelerometer row (all 50 Hz sensors run together)
+  const acc = r.summary.find((x) => x.sensor === "accelerometer") || r.summary[0] || {};
+  const recorded = acc.readings && acc.measured_hz ? acc.readings / acc.measured_hz : 0;
+  const lost = r.gaps.filter((g) => !g.planned);
+  const lostSeconds = lost.reduce((a, g) => a + g.gap_seconds, 0);
+  const offMinutes = r.off_wrist.reduce((a, o) => a + (o.minutes || 0), 0);
+
+  const sensorRows = r.summary.map((x) => `
+    <tr><td>${esc(x.sensor)}</td><td class="num">${(x.readings ?? 0).toLocaleString()}</td>
+        <td class="num">${x.measured_hz ?? "–"}</td><td>${esc(x.first)} – ${esc(x.last)}</td>
+        <td class="num">${x.gaps ?? "–"}</td><td class="num">${x.gap_minutes ?? "–"}</td></tr>`).join("");
+
+  const gapRows = r.gaps.map((g) => {
+    const sameDay = String(g.gap_start).slice(0, 10) === String(g.gap_end).slice(0, 10);
+    const end = sameDay ? hms(g.gap_end) : String(g.gap_end).slice(5, 16);
+    return `<tr><td>${hms(g.gap_start)} → ${esc(end)}</td><td class="num">${duration(g.gap_seconds)}</td>
+                <td>${reasonPill(g)}</td></tr>`;
+  }).join("");
+
+  const offRows = r.off_wrist.map((o) => `
+    <tr><td>${hms(o.off_from)} → ${o.back_on ? hms(o.back_on) : "not back on yet"}</td>
+        <td class="num">${o.minutes != null ? o.minutes + " min" : "–"}</td></tr>`).join("");
+
+  const captions = { overview: "Whole day", zoom: "All sensors, a few seconds", timing: "Sampling regularity" };
+  const order = { overview: 0, zoom: 1, timing: 2 };
+  const kindOf = (name) => name.split("_")[1].replace(".png", "");
+  r.figures.sort((a, b) => order[kindOf(a.name)] - order[kindOf(b.name)]);
+  const figures = r.figures.map((f) => {
+    const kind = kindOf(f.name);
+    const url = `/figures/${encodeURIComponent(f.name)}?v=${f.version}`;
+    return `<a href="${url}" target="_blank"><img src="${url}" alt="${esc(captions[kind])}"><div class="cap">${esc(captions[kind])}</div></a>`;
+  }).join("");
+
+  $("report").innerHTML = `
+    <div class="stats">
+      <div class="stat"><div class="v">${duration(recorded)}</div><div class="l">recorded</div></div>
+      <div class="stat"><div class="v">${duration(lostSeconds)}</div><div class="l">lost (${lost.length} gap${lost.length === 1 ? "" : "s"})</div></div>
+      <div class="stat"><div class="v">${offMinutes.toFixed(1)} min</div><div class="l">off wrist</div></div>
+      <div class="stat"><div class="v">${acc.measured_hz ?? "–"} Hz</div><div class="l">sampling rate</div></div>
+    </div>
+
+    <h3>Sensors</h3>
+    <div class="table-wrap"><table>
+      <tr><th>Sensor</th><th class="num">Readings</th><th class="num">Hz</th><th>First – last</th>
+          <th class="num">Gaps</th><th class="num">Lost min</th></tr>${sensorRows}</table></div>
+
+    <h3>Gaps</h3>
+    ${r.gaps.length ? `<div class="table-wrap"><table><tr><th>When</th><th class="num">Length</th><th>Reason</th></tr>${gapRows}</table></div>`
+                    : `<p class="empty">No gaps on this day.</p>`}
+
+    <h3>Off wrist</h3>
+    ${r.off_wrist.length ? `<div class="table-wrap"><table><tr><th>When</th><th class="num">Length</th></tr>${offRows}</table></div>`
+                         : `<p class="empty">The watch was on the wrist the whole time.</p>`}
+
+    <h3>Figures</h3>
+    ${figures ? `<div class="figures">${figures}</div>`
+              : `<p class="empty">No figures for this day yet. Click <b>Make figures</b> above.</p>`}`;
+}
+
+// ---------------- setup / settings form ----------------
+
+async function openSetup(firstTime) {
+  const c = await (await fetch("/api/settings")).json();
+  $("setupTitle").textContent = firstTime ? "Welcome to HAR Recorder" : "Settings";
+  $("fHost").value = c.host; $("fUser").value = c.username; $("fPass").value = "";
+  $("fData").value = c.data_dir; $("fPort").value = c.port; $("fTls").checked = c.tls;
+  $("passHint").textContent = c.has_password ? "leave empty to keep the current one" : "";
+  $("fPass").required = !c.has_password;
+  $("btnCancel").hidden = firstTime;
+  $("setupError").textContent = "";
+  $("setup").hidden = false;
+  document.body.classList.add("setup");
+}
+
+function closeSetup() {
+  $("setup").hidden = true;
+  document.body.classList.remove("setup");
+}
+
+$("btnSettings").onclick = () => openSetup(false);
+$("btnCancel").onclick = closeSetup;
+
+$("setupForm").onsubmit = async (e) => {
+  e.preventDefault();                           // stay on this page
+  $("btnSave").disabled = true;
+  $("btnSave").textContent = "Checking connection…";
+  $("setupError").textContent = "";
+  try {
+    const r = await post("/api/setup", {
+      host: $("fHost").value, username: $("fUser").value, password: $("fPass").value,
+      data_dir: $("fData").value, port: $("fPort").value, tls: $("fTls").checked,
+    });
+    if (r.ok) { closeSetup(); refreshStatus(); refreshReport(); }
+    else $("setupError").textContent = r.error;
+  } catch (err) {
+    $("setupError").textContent = "The dashboard isn't responding. Is its window still open?";
+  }
+  $("btnSave").disabled = false;
+  $("btnSave").textContent = "Check and save";
+};
+
+// ---------------- start everything ----------------
+
+$("pick").addEventListener("change", (e) => { selected = e.target.value; refreshLive(); });
+refreshStatus(); refreshLive(); refreshJobs(); refreshReport();
+setInterval(refreshStatus, 1000);   // ask the dashboard engine every second
+setInterval(refreshLive, 1000);
+setInterval(refreshJobs, 1500);
+</script>
+</body>
+</html>
